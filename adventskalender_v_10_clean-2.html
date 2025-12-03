@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Adventskalender v10 — Cleaned</title>
+<link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+<style>
+/* --- STYLES BLIJVEN GROTENDEELS GELIJK, KLEINE FIXES --- */
+:root{
+  --door-red:#c0392b;
+  --gold-gradient:linear-gradient(135deg,#FFD700,#FFC700,#FFEA00);
+  --black:#222;
+  --used-gray:#666;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'Dancing Script',cursive;
+  min-height:100vh;
+  background:linear-gradient(135deg,#fdebd0 0%,#f8e3e3 50%,#e8f7ef 100%);
+  display:flex;align-items:center;justify-content:center;padding:24px;
+}
+
+/* --- START SCREEN --- */
+#start-screen{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;cursor:pointer;z-index:20;text-align:center;
+  font-size:7rem;font-weight:900;-webkit-text-stroke:2px #000;
+  text-shadow:6px 6px 18px rgba(0,0,0,0.6);
+  background:linear-gradient(90deg,#FFD700,#FFC700,#FFE680,#FFD700);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-size:300% 100%;
+}
+#start-screen:hover{transform:scale(1.03);animation:shine 1.2s linear infinite;}
+@keyframes shine{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+
+/* --- CALENDAR GRID --- */
+.calendar{display:none;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;width:100%;max-width:980px;z-index:10;}
+.cell{position:relative;width:100%;aspect-ratio:1/1;perspective:900px;}
+.num-badge{position:absolute;top:8px;left:8px;font-weight:800;font-size:0.95rem;color:#333;z-index:8}
+
+.door{position:absolute;inset:0;border-radius:14px;display:flex;align-items:center;justify-content:center;
+  background:var(--door-red);color:white;font-size:1.5rem;font-weight:900;cursor:pointer;z-index:6;
+  transform-origin:left center;transition:transform .8s,opacity .3s;
+}
+.cell.opening .door{transform:rotateY(-160deg);opacity:0}
+.panel{position:absolute;inset:0;border-radius:14px;z-index:4;padding:12px;text-align:center;
+  display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:700;
+  background:var(--gold-gradient);
+}
+.panel button{background:none;border:none;cursor:pointer;font-size:1.1rem;font-family:'Dancing Script';}
+.panel .viewed{color:var(--used-gray);cursor:default}
+
+/* --- CONFETTI CANVAS --- */
+#confettiCanvas{position:fixed;inset:0;pointer-events:none;z-index:30;}
+
+/* --- TOGGLES --- */
+#soundToggle{position:fixed;top:12px;right:12px;z-index:25;background:white;padding:6px 12px;border-radius:10px;cursor:pointer;}
+#confettiBtn{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:28;background:gold;padding:10px 16px;border-radius:10px;font-weight:bold;cursor:pointer;display:none;}
+@media(max-width:600px){#start-screen{font-size:3rem;}body{padding:12px;} .panel{font-size:1rem;} .door{font-size:1.2rem;} .num-badge{font-size:0.8rem;}} </style>
+</head>
+<body>
+
+<canvas id="confettiCanvas"></canvas>
+<div id="start-screen" role="button" tabindex="0">Adventskalender</div>
+<div class="calendar" id="calendar"></div>
+<button id="soundToggle">🔔 Geluid: Aan</button>
+<button id="confettiBtn">🎉 Feest!</button>
+
+<script>
+/* ==========================================================
+   AUDIO — GELUID TOGGLE (slider verwijderd)
+========================================================== */
+const AudioCtx=window.AudioContext||window.webkitAudioContext;
+const audioCtx=new AudioCtx();
+let soundEnabled=true;
+let masterGain=audioCtx.createGain();
+masterGain.gain.value=0.4;
+masterGain.connect(audioCtx.destination);
+
+function playTone(freq,dur=0.18,type='triangle'){
+  if(!soundEnabled) return;
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc.type=type;
+  osc.frequency.value=freq;
+  gain.gain.setValueAtTime(0,audioCtx.currentTime);
+  gain.gain.linearRampToValueAtTime(0.1,audioCtx.currentTime+0.02);
+  gain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+dur);
+  osc.connect(gain);gain.connect(masterGain);
+  osc.start();osc.stop(audioCtx.currentTime+dur+0.05);
+}
+
+/* --- SOUND EFFECTS --- */
+function doorSound(){playTone(550,0.12);setTimeout(()=>playTone(660,0.12),130);} 
+function linkSound(){if(!soundEnabled)return;[0,1,2].forEach(i=>setTimeout(()=>playTone(880,0.06,'square'),i*1000));}
+function feestSound(){playTone(520,0.15);setTimeout(()=>playTone(650,0.15),100);setTimeout(()=>playTone(780,0.15),200);} 
+
+/* JINGLE BELLS LOOP */
+const jingle=[{f:659,d:0.15},{f:659,d:0.15},{f:659,d:0.3},{f:659,d:0.15},{f:659,d:0.15},{f:659,d:0.3},{f:659,d:0.15},{f:784,d:0.15},{f:523,d:0.15},{f:587,d:0.15},{f:659,d:0.3}];
+let jIndex=0,jPlaying=false;
+function jingleLoop(){
+  if(!jPlaying) return;
+  let n=jingle[jIndex];
+  // only play tones when soundEnabled is true, but keep the scheduler running
+  if(soundEnabled) playTone(n.f,n.d);
+  jIndex=(jIndex+1)%jingle.length;
+  setTimeout(jingleLoop,n.d*1000+80);
+}
+function startJingle(){jPlaying=true;jIndex=0;jingleLoop();}
+function stopJingle(){jPlaying=false;}
+
+/* ==========================================================
+   CONFETTI — oude stijl, maar geoptimaliseerd
+   Vanaf 4e keer alleen grote flamingo's
+========================================================== */
+const confettiCanvas=document.getElementById('confettiCanvas');
+const ctx=confettiCanvas.getContext('2d');
+function resize(){confettiCanvas.width=innerWidth;confettiCanvas.height=innerHeight;}resize();window.addEventListener('resize',resize);
+let confetti=[], anim=false, feestCount=0;
+
+function spawnConfetti(n=200, flamingoOnly=false){
+  const emojis=["❄️","🎄","🎁","🔔","🧸","⛄","🔥","🛸"]; // beperkter voor performance
+  for(let i=0;i<n;i++){
+    confetti.push({
+      x:Math.random()*confettiCanvas.width,
+      y:-Math.random()*confettiCanvas.height,
+      r:flamingoOnly?(80+Math.random()*80):(12+Math.random()*28),
+      c:flamingoOnly?'🦩':emojis[Math.floor(Math.random()*emojis.length)],
+      vx:(Math.random()-0.5)*6,
+      vy:3+Math.random()*7,
+      spin:(Math.random()-0.5)*0.25
+    });
+  }
+  if(!anim){anim=true;requestAnimationFrame(loop);} 
+}
+
+function loop(){
+  ctx.clearRect(0,0,confettiCanvas.width,confettiCanvas.height);
+  confetti.forEach(p=>{
+    p.x+=p.vx;p.y+=p.vy;p.vy+=0.05;
+    ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.spin*(p.y/20));
+    ctx.font=p.r+'px serif';ctx.fillText(p.c,0,0);ctx.restore();
+  });
+  confetti=confetti.filter(p=>p.y<confettiCanvas.height+200);
+  if(confetti.length>0) requestAnimationFrame(loop); else anim=false;
+}
+
+/* ==========================================================
+   CALENDAR
+========================================================== */
+const calendar=document.getElementById('calendar');
+const links=[
+"https://youtu.be/C9D0Kr0yHng", "https://youtu.be/7ywYnk0-xUY", "https://youtu.be/XqwbqxzsA2g",
+"https://youtu.be/KxaWvJ-ziXA","https://youtu.be/gKb0v5wTE","https://youtu.be/16ZcE-FJ3Fk",
+"https://youtu.be/gz9BRl7DVSM","https://youtu.be/QDTsZn-eM5g","https://youtu.be/VSd3Wc5nkLw",
+"https://youtu.be/KDt-Fz0PLvk","https://youtu.be/wrEPJh14mcU","https://youtu.be/u7DGkkxBS5w",
+"https://youtu.be/5hIKKYv_3Ic","https://youtu.be/wOMe-8Tf1Y0","https://youtu.be/1bVPhnaOIEU",
+"https://youtu.be/B02b5w2mn2E","https://youtu.be/0viZu0r9asQ","https://youtu.be/TufU2s_PS6o",
+"https://youtu.be/EAax4BSKNQU","https://youtu.be/jJsASPd7cDQ","https://youtu.be/faYZRtT_CZ4",
+"https://youtu.be/eXGq8rlq2I0","https://youtu.be/aWa2dAEV5UQ","https://youtu.be/lNPTkwNe7Ic"
+];
+
+/* December logic (testMonth evt. toevoegen) */
+let today=new Date();
+let allowedDay=(today.getMonth()===11)?today.getDate():1;
+let firstOpen=false;
+
+for(let i=1;i<=24;i++){
+  const cell=document.createElement('div');cell.className='cell';
+  const num=document.createElement('div');num.className='num-badge';num.textContent=i;
+  const panel=document.createElement('div');panel.className='panel';
+
+  if(i<=allowedDay){
+    const btn=document.createElement('button');
+    btn.textContent='bekijk filmpje';
+    btn.addEventListener('click',()=>{
+      if(btn.classList.contains('viewed'))return;
+      linkSound(); stopJingle();
+      window.open(links[i-1],'_blank','noopener');
+      btn.classList.add('viewed');btn.textContent='bekeken';
+      if(firstOpen) document.getElementById('confettiBtn').style.display='block';
+    });
+    panel.appendChild(btn);
+
+    const door=document.createElement('button');door.className='door';door.textContent=i;
+    door.addEventListener('click',()=>{
+      doorSound();
+      if(!firstOpen){firstOpen=true;spawnConfetti(300,false);} 
+      cell.classList.add('opening');
+      setTimeout(()=>door.remove(),820);
+    });
+
+    cell.appendChild(panel);cell.appendChild(num);cell.appendChild(door);
+  } else {
+    panel.textContent='Nog niet beschikbaar';
+    const door=document.createElement('button');door.className='door';door.textContent=i;door.disabled=true;
+    cell.appendChild(panel);cell.appendChild(num);cell.appendChild(door);
+  }
+  calendar.appendChild(cell);
+}
+
+/* ==========================================================
+   INTERACTIE
+========================================================== */
+const start=document.getElementById('start-screen');
+start.addEventListener('click',()=>{
+  start.style.display='none';calendar.style.display='grid';
+  audioCtx.resume();startJingle();feestSound();
+});
+start.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' ')start.click();});
+
+/* --- SOUND TOGGLE --- */
+const soundToggle=document.getElementById('soundToggle');
+soundToggle.addEventListener('click',()=>{
+  soundEnabled=!soundEnabled;
+  soundToggle.textContent=soundEnabled?'🔔 Geluid: Aan':'🔕 Geluid: Uit';
+});
+
+/* --- FEEST KNOP --- */
+document.getElementById('confettiBtn').addEventListener('click',()=>{
+  feestCount++;feestSound();
+  if(feestCount<4) spawnConfetti(400,false); else spawnConfetti(80,true);
+});
+</script>
+</body>
+</html>
